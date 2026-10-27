@@ -1,4 +1,10 @@
 = Design by Contract for Kotlin Multiplatform
+
+image:https://github.com/infosmid-org/design-by-contract/actions/workflows/snapshot.yml/badge.svg[Build Status,link=https://github.com/infosmid-org/design-by-contract/actions/workflows/snapshot.yml]
+image:https://img.shields.io/maven-central/v/org.infosmid/design-by-contract.svg[Maven Central,link=https://central.sonatype.com/artifact/org.infosmid/design-by-contract]
+image:https://img.shields.io/badge/License-Apache%202.0-blue.svg[License,link=LICENSE]
+
+
 :project-version: 1.0.0
 :toc: left
 :toclevels: 3
