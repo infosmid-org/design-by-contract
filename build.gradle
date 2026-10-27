@@ -1,0 +1,287 @@
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinMultiplatform
+import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinTest
+
+buildscript {
+    repositories {
+        mavenLocal()
+        google()
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+plugins {
+    alias(libs.plugins.local.properties)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
+    alias(libs.plugins.dokka)
+    id 'maven-publish'
+    alias(libs.plugins.maven.publish)
+    alias(libs.plugins.asciidoctorj)
+}
+
+repositories {
+    mavenLocal {
+        content {
+            includeGroupAndSubgroups('org.infosmid')
+        }
+    }
+    google()
+    mavenCentral()
+}
+
+def getVersionFromFile() {
+    def versionFile = new File(project.projectDir, 'version.txt')
+    return versionFile.text.trim()
+}
+
+group = 'org.infosmid'
+version = providers.gradleProperty('releaseVersion').getOrNull() ?: getVersionFromFile()
+description = 'Design by Contract for Kotlin Multiplatform'
+
+configurations {
+    plantuml
+}
+configurations.configureEach {
+    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'org.jruby' && details.requested.name == 'jruby-complete') {
+            details.useVersion('9.4.8.0')
+            details.because('Workaround for setJrubyJarProvider incompatibility in JRuby >= 10.1.0.0')
+        }
+    }
+}
+
+dependencies {
+
+}
+
+asciidoc {
+    publications {
+        main {
+            sourceSet {
+                sourceDir = 'src/docs/asciidoc'
+                sources {
+                    include 'index.adoc'
+                }
+                resources {
+                    include '**/*.png'
+                    include '**/*.xml'
+                    include '**/*.js'
+                    include '**/*.css'
+                }
+                attributes {
+                    addAll 'toc': 'left',
+                        'idprefix': '',
+                        'idseparator': '-',
+                        'docinfo1': '',
+                        // Lets index.adoc link to the API docs: link:{api-docs}/index.html[API]
+                        'api-docs': 'api'
+                }
+                missingIncludesAreFatal()
+            }
+            output 'asciidoctorj', 'html'
+        }
+    }
+}
+
+// The docs zip has its own publication (design-by-contract-doc) so it never goes to Maven Central.
+publishing {
+    publications {
+        documentation(MavenPublication) {
+            artifactId = "${project.name}-doc"
+        }
+    }
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri("https://maven.pkg.github.com/infosmid-org/${project.name}")
+            credentials {
+                username = providers.environmentVariable('GITHUB_ACTOR').getOrElse('')
+                password = providers.environmentVariable('GITHUB_TOKEN').getOrElse('')
+            }
+        }
+    }
+}
+tasks.withType(PublishToMavenRepository).configureEach {
+    onlyIf {
+        if (publication?.name == 'documentation') {
+            return !repository?.name?.equalsIgnoreCase('mavenCentral')
+        }
+        return true
+    }
+}
+
+// Properties read by gradle/site-docs.gradle (siteDocsZip); must be set before it is applied.
+ext {
+    siteDocsTitle       = 'Design by Contract'
+    siteDocsSummary     = project.description
+    siteDocsGuideTask   = 'asciidoctorHtml'
+    siteDocsApiTask     = 'dokkaGeneratePublicationHtml'
+    siteDocsPublication = 'documentation'
+    siteDocsArtifactId  = project.name
+    siteDocsTags        = ['Kotlin', 'Multiplatform', 'Contract', 'DBC']
+    siteDocsLicense     = 'Apache-2.0'
+    siteDocsSourceUrl   = "https://github.com/infosmid-org/${project.name}".toString()
+}
+apply from: "$project.projectDir/gradle/site-docs.gradle"
+
+tasks.register('updateReadmeVersion') {
+    group = 'documentation'
+    description = 'Modifies :project-version: attribute at the top of README.adoc'
+    def readmeFile = layout.projectDirectory.file('README.adoc').asFile
+    def projectVersion = providers.provider { project.version.toString() }
+    inputs.property('version', projectVersion)
+    outputs.file(readmeFile)
+    doLast {
+        if (!readmeFile.exists()) return
+        def content = readmeFile.text
+        def versionStr = projectVersion.get()
+        def versionAttr = ":project-version: ${versionStr}"
+        if (content =~ /(?m)^:project-version:.*$/) {
+            content = content.replaceFirst(/(?m)^:project-version:.*$/, versionAttr)
+        } else {
+            def matcher = content =~ /(?m)^(=[^\r\n]*\r?\n)/
+            if (matcher.find()) {
+                content = content.substring(0, matcher.end()) + versionAttr + "\n" + content.substring(matcher.end())
+            } else {
+                content = versionAttr + "\n" + content
+            }
+        }
+        readmeFile.text = content
+    }
+}
+
+tasks.register('copyPng', Copy) {
+    from(projectDir) {
+        include '*.png'
+    }
+    into "${layout.buildDirectory.asFile.get()}/docs/asciidoc"
+}
+
+asciidoctorHtml.dependsOn('updateReadmeVersion')
+asciidoctorHtml.dependsOn('copyPng')
+
+mavenPublishing {
+    configure(new KotlinMultiplatform(new JavadocJar.Dokka('dokkaGeneratePublicationHtml')))
+    publishToMavenCentral()
+    if (providers.gradleProperty('signingInMemoryKey').isPresent()) {
+        signAllPublications()
+    }
+    coordinates(project.group.toString(), project.name, project.version.toString())
+    pom {
+        name = 'Design by Contract'
+        description = project.description
+        inceptionYear = '2026'
+        url = "https://github.com/infosmid-org/${project.name}"
+        licenses {
+            license {
+                name = 'The Apache License, Version 2.0'
+                url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                distribution = 'repo'
+            }
+        }
+        developers {
+            developer {
+                id = 'corneil'
+                name = 'Corneil du Plessis'
+                url = 'https://github.com/corneil'
+            }
+        }
+        scm {
+            url = "https://github.com/infosmid-org/${project.name}"
+            connection = "scm:git:git://github.com/infosmid-org/${project.name}.git"
+            developerConnection = "scm:git:ssh://git@github.com/infosmid-org/${project.name}.git"
+        }
+        issueManagement {
+            system = 'GitHub'
+            url = "https://github.com/infosmid-org/${project.name}/issues"
+        }
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+
+    jvm {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_11
+        }
+    }
+    android {
+        namespace = 'org.infosmid.dbc'
+        compileSdk = 36
+        minSdk = 21
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_11
+        }
+        withHostTest {}
+    }
+    iosArm64()
+    iosSimulatorArm64()
+    macosArm64()
+    linuxX64()
+    linuxArm64()
+    wasmJs {
+        browser {
+            testTask {
+                useKarma {
+                    useChromeHeadless()
+                }
+            }
+        }
+        nodejs()
+    }
+    wasmWasi {
+        nodejs()
+    }
+    js {
+        browser()
+        nodejs()
+    }
+    sourceSets {
+        configureEach {
+            languageSettings.optIn("kotlin.RequiresOptIn")
+        }
+        commonTest {
+            dependencies {
+                implementation libs.kotlin.test
+
+            }
+        }
+        jvmTest {
+            dependencies {
+                implementation libs.kotlin.test.junit5
+            }
+        }
+        androidHostTest {
+            dependencies {
+                implementation libs.kotlin.test.junit5
+                implementation libs.mockk
+            }
+        }
+    }
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    reports.junitXml.required = true
+}
+
+tasks.named('jvmTest', Test) {
+    systemProperty 'dbc.postcondition', 'false'
+}
+
+tasks.register('docs') {
+    group = 'documentation'
+    dependsOn('asciidoctorHtml','dokkaGeneratePublicationHtml', 'siteDocsZip')
+}
+
+dokka {
+    dokkaSourceSets.configureEach {
+        documentedVisibilities.add(VisibilityModifier.Internal)
+        documentedVisibilities.add(VisibilityModifier.Public)
+    }
+}

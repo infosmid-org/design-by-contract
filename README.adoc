@@ -1,0 +1,361 @@
+= Design by Contract for Kotlin Multiplatform
+:project-version: 1.0.0
+:toc: left
+:toclevels: 3
+:icons: font
+:source-highlighter: highlight.js
+
+A Kotlin Multiplatform library for Design by Contract (DbC).
+
+Software systems require high reliability and clear behavioural specifications.
+Design by Contract provides formal, verifiable boundaries between callers and implementations.
+This library enables contracts across all Kotlin Multiplatform targets, supporting preconditions, postconditions, and class invariants.
+
+It provides two complementary modes of operation:
+
+1. **Unconditional Checks**: Critical validation rules and compiler smart-casts that always execute.
+2. **Excludable Checks**: In-depth verifications that you can enable during development and testing, and disable in production to maximise runtime performance.
+
+== Supported Targets
+
+* **JVM**: JVM 11+ (Toolchain 17+)
+* **Android**: API 21+ (`minSdk 21`, `compileSdk 36`)
+* **Apple Platforms**: iOS (`iosArm64`, `iosSimulatorArm64`), macOS (`macosArm64`)
+* **Linux**: `linuxX64`, `linuxArm64`
+* **JavaScript**: Node.js and Web Browsers
+* **WebAssembly**: `wasmJs` (Node.js & Browsers) and `wasmWasi` (Node.js)
+
+== Build Configuration
+
+Add the dependency to your project build file.
+
+=== Kotlin Multiplatform (`build.gradle.kts`)
+
+[source,kotlin,subs="attributes+"]
+----
+repositories {
+    mavenCentral()
+}
+
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("org.infosmid:design-by-contract:{project-version}")
+        }
+    }
+}
+----
+
+=== Kotlin Multiplatform (`build.gradle` - Groovy DSL)
+
+[source,groovy,subs="attributes+"]
+----
+repositories {
+    mavenCentral()
+}
+
+kotlin {
+    sourceSets {
+        commonMain {
+            dependencies {
+                implementation 'org.infosmid:design-by-contract:{project-version}'
+            }
+        }
+    }
+}
+----
+
+=== Single Platform (JVM / Android)
+
+==== Kotlin DSL (`build.gradle.kts`)
+
+[source,kotlin,subs="attributes+"]
+----
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation("org.infosmid:design-by-contract:{project-version}")
+}
+----
+
+==== Groovy DSL (`build.gradle`)
+
+[source,groovy,subs="attributes+"]
+----
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.infosmid:design-by-contract:{project-version}'
+}
+----
+
+== Check Categories & Exclusion Model
+
+Contract checks are divided into two distinct groups based on their execution guarantees:
+
+[cols="2,2,4,2", options="header"]
+|===
+| Check Type | Signature Pattern | Behavior & Evaluation | Excludable?
+
+| **Eager Preconditions**
+| `precondition(Boolean, ...)` +
+`preconditionNotNull(T?, ...)` +
+`preconditionFailed(...)`
+| Evaluated immediately. Integrates with Kotlin contracts for compiler smart-casting.
+| **Never Excluded** (Always Active)
+
+| **Lazy Preconditions**
+| `precondition(() -> Boolean, ...)` +
+`precondition(String, () -> Boolean)`
+| Evaluated only when `Dbc.preconditions` is `true`. Skips lambda execution when disabled.
+| **May Be Excluded**
+
+| **Eager Postconditions**
+| `postcondition(Boolean, ...)` +
+`postconditionNotNull(T?, ...)` +
+`postconditionFailed(...)`
+| Evaluated immediately upon function return. Integrates with Kotlin contracts.
+| **Never Excluded** (Always Active)
+
+| **Lazy Postconditions**
+| `postcondition(() -> Boolean, ...)` +
+`postcondition(String, () -> Boolean)`
+| Evaluated only when `Dbc.postconditions` is `true`. Skips lambda execution when disabled.
+| **May Be Excluded**
+
+| **Class Invariants**
+| `HasInvariant.checkInvariant(...)`
+| Validates object state before and after method execution, or immediately. Controlled by `Dbc.invariants`.
+| **May Be Excluded**
+|===
+
+[IMPORTANT]
+====
+* **Never Excluded Checks**: Always throw `PreConditionException` or `PostConditionException` when violated, regardless of runtime configuration. Use these for argument validation and smart casting.
+* **Excludable Checks**: Pass condition expressions as lambdas (`{ ... }`). If the corresponding switch is disabled, the lambda is not invoked, producing zero evaluation overhead.
+====
+
+== Usage Examples
+
+=== 1. Preconditions
+
+Preconditions define requirements that callers must satisfy before invoking a method.
+
+[source,kotlin]
+----
+import org.infosmid.dbc.precondition
+import org.infosmid.dbc.preconditionNotNull
+import org.infosmid.dbc.preconditionFailed
+
+class OrderProcessor {
+
+    fun processOrder(orderId: String?, amount: Double, items: List<String>) {
+        // Never Excluded: Validates nullability and smart-casts orderId to String
+        val validId: String = preconditionNotNull(orderId) { "Order ID must not be null" }
+
+        // Never Excluded: Direct boolean check
+        precondition(amount > 0.0) { "Order amount must be positive, but was $amount" }
+
+        // May Be Excluded: Lambda check for expensive validation (e.g. collection scanning)
+        precondition({ items.isNotEmpty() && items.all { it.isNotBlank() } }) {
+            "Items list must contain only non-blank identifiers"
+        }
+
+        // Never Excluded: Explicit failure branch
+        if (amount > 1_000_000.0) {
+            preconditionFailed("Amount exceeds single transaction limit: $amount")
+        }
+
+        executeTransaction(validId, amount, items)
+    }
+
+    private fun executeTransaction(id: String, amount: Double, items: List<String>) {
+        // ...
+    }
+}
+----
+
+=== 2. Postconditions
+
+Postconditions define guarantees that a method delivers upon successful execution.
+
+[source,kotlin]
+----
+import org.infosmid.dbc.postcondition
+import org.infosmid.dbc.postconditionNotNull
+import org.infosmid.dbc.postconditionFailed
+
+class CalculationService {
+
+    fun computeSquareRoot(value: Double): Double {
+        precondition(value >= 0.0) { "Cannot compute square root of negative number: $value" }
+
+        val result = kotlin.math.sqrt(value)
+
+        // Never Excluded: Immediate boolean postcondition
+        postcondition(result >= 0.0) { "Square root output must be non-negative" }
+
+        // May Be Excluded: Lambda postcondition verifying mathematical consistency
+        postcondition({ kotlin.math.abs((result * result) - value) < 0.0001 }) {
+            "Square root calculation precision error for value $value"
+        }
+
+        return result
+    }
+
+    fun findUser(id: String): User {
+        val user: User? = databaseQuery(id)
+
+        // Never Excluded: Smart-casts return value and guarantees non-null
+        return postconditionNotNull(user) { "User query must return a non-null User object for id: $id" }
+    }
+
+    private fun databaseQuery(id: String): User? = User(id)
+}
+
+data class User(val id: String)
+----
+
+=== 3. Class Invariants
+
+Class invariants define state consistency rules that must remain true for the lifetime of an object.
+Classes implement `HasInvariant` and evaluate state consistency using `checkInvariant`.
+
+[source,kotlin]
+----
+import org.infosmid.dbc.HasInvariant
+import org.infosmid.dbc.checkInvariant
+import org.infosmid.dbc.precondition
+
+class BankAccount(
+    var balance: Double = 0.0,
+    var overdraftLimit: Double = 100.0
+) : HasInvariant {
+
+    /**
+     * Invariant definition: Balance must never drop below the negative overdraft limit,
+     * and the overdraft limit itself must be non-negative.
+     */
+    override fun invariant(): Boolean {
+        return balance >= -overdraftLimit && overdraftLimit >= 0.0
+    }
+
+    /**
+     * Scoped invariant check:
+     * Verifies the invariant BEFORE and AFTER the block executes.
+     * Throws InvariantException if either check fails.
+     */
+    fun withdraw(amount: Double) = checkInvariant("Invariant violated during withdrawal") {
+        precondition(amount > 0.0) { "Withdrawal amount must be positive" }
+        balance -= amount
+    }
+
+    fun deposit(amount: Double) = checkInvariant("Invariant violated during deposit") {
+        precondition(amount > 0.0) { "Deposit amount must be positive" }
+        balance += amount
+    }
+
+    /**
+     * Immediate invariant check on the current state.
+     */
+    fun updateLimit(newLimit: Double) {
+        precondition(newLimit >= 0.0) { "Limit must be non-negative" }
+        overdraftLimit = newLimit
+        this.checkInvariant("Invalid overdraft limit update")
+    }
+}
+----
+
+== Platform Configuration
+
+You can enable or disable excludable contract checks globally or per category (`precondition`, `postcondition`, `invariant`).
+
+=== Configuration Resolution Order
+
+For each check category, the system resolves flags in this order:
+
+1. **Category Setting**: `dbc.<category>` (e.g., `dbc.precondition`, `dbc.postcondition`, `dbc.invariant`).
+2. **Global Setting**: `dbc.enabled`.
+3. **Platform Default**: The platform debug signal (`true` in debug builds/tests, `false` otherwise).
+
+Recognized boolean string values: `true`, `1`, `yes`, `on`, `enabled` (case-insensitive) or `false`, `0`, `no`, `off`, `disabled`.
+
+=== Platform Settings Mechanisms
+
+[cols="2,4,3", options="header"]
+|===
+| Platform | Configuration Source | Example
+
+| **JVM**
+| System Properties
+| `-Ddbc.enabled=false` +
+`-Ddbc.invariant=true`
+
+| **Android**
+| `AndroidManifest.xml` `<meta-data>`
+| `<meta-data android:name="dbc.enabled" android:value="false"/>`
+
+| **Apple (iOS / macOS)**
+| `NSUserDefaults`
+| `defaults write <bundle-id> dbc.enabled -bool false`
+
+| **Linux / POSIX**
+| Environment Variables
+| `export DBC_ENABLED=false` +
+`export DBC_PRECONDITION=true`
+
+| **JavaScript / Wasm**
+| `globalThis.DBC_CONFIG` or `process.env`
+| `globalThis.DBC_CONFIG = { enabled: false, invariant: true };`
+|===
+
+=== Programmatic Configuration
+
+You can modify contract verification flags dynamically in Kotlin code:
+
+[source,kotlin]
+----
+import org.infosmid.dbc.config.Dbc
+import org.infosmid.dbc.config.DbcKind
+
+// Enable or disable specific check categories
+Dbc.preconditions = true
+Dbc.postconditions = false
+Dbc.invariants = true
+
+// Alternatively, use enum-based helpers
+Dbc.set(DbcKind.POSTCONDITION, true)
+
+// Enable or disable all categories simultaneously
+Dbc.setAll(false)
+
+// Re-read host environment/platform settings, discarding programmatic changes
+Dbc.reload()
+----
+
+== Exceptions
+
+The library defines the following exception hierarchy:
+
+* `DesignByContractException` (inherits from `RuntimeException`)
+** `PreConditionException` (thrown when a precondition fails)
+** `PostConditionException` (thrown when a postcondition fails)
+** `InvariantException` (thrown when an invariant fails)
+
+== Building the Library
+
+* Build all targets: `./gradlew assemble`
+* Run tests across all targets: `./gradlew check allTests`
+* Run JVM tests: `./gradlew jvmTest`
+* Run Android tests: `./gradlew testAndroidHostTest`
+* Run JS & Wasm tests: `./gradlew jsNodeTest wasmJsNodeTest wasmWasiNodeTest`
+* Generate documentation: `./gradlew asciidoctorHtml dokkaGeneratePublicationHtml siteDocsZip`
+* Publish to Maven Local: `./gradlew publishToMavenLocal`
+
+== License
+
+Licensed under the link:https://www.apache.org/licenses/LICENSE-2.0.html[Apache License 2.0].

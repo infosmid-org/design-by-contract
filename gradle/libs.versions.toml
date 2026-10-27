@@ -1,0 +1,23 @@
+[versions]
+kotlin = "2.4.21"
+agp = "9.1.1"
+dokka = "2.2.0"
+localProperties = "1.0.1"
+asciidoctorPlugin = "5.0.3"
+
+maven-publish-plugin = "0.37.0"
+mockk = "1.14.11"
+
+[libraries]
+
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5", version.ref = "kotlin" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+asciidoctorj = { id = "org.asciidoctor.jvm", version.ref = "asciidoctorPlugin" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish-plugin" }
+local-properties = { id = "io.jumpco.open.gradle.local-properties", version.ref = "localProperties" }
