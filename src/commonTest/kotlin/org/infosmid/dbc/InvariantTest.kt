@@ -126,7 +126,7 @@ class InvariantTest {
 			account.checkInvariant { "Account balance is negative. ${account.balance}" }
 		}
 
-		assertEquals("Account balance is negative", ex.message)
+		assertEquals("Account balance is negative. ${account.balance}", ex.message)
 		assertEquals(1, account.invariantCheckCount)
 	}
 
