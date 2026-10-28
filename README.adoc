@@ -69,6 +69,43 @@ kotlin {
 }
 ----
 
+=== Gradle Version Catalog
+
+If your project uses a https://docs.gradle.org/current/userguide/version_catalogs.html[Gradle version catalog], declare the library in `gradle/libs.versions.toml`:
+
+[source,toml,subs="attributes+"]
+----
+[versions]
+design-by-contract = "{project-version}"
+
+[libraries]
+infosmid-dbc = { module = "org.infosmid:design-by-contract", version.ref = "design-by-contract" }
+----
+
+Then reference it from your build file through the generated `libs` accessor:
+
+[source,kotlin]
+----
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(libs.infosmid.dbc)
+        }
+    }
+}
+----
+
+For a single platform (JVM / Android) project, use the same accessor in the top-level `dependencies` block:
+
+[source,kotlin]
+----
+dependencies {
+    implementation(libs.infosmid.dbc)
+}
+----
+
+In Groovy DSL (`build.gradle`) the accessor is `implementation libs.design.by.contract`.
+
 === Single Platform (JVM / Android)
 
 ==== Kotlin DSL (`build.gradle.kts`)
